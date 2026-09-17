@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>Chroma Echo</title>
+<style>
+  :root {
+    --bg: #12141a;
+    --bg-deep: #0b0c10;
+    --panel: #1a1d26;
+    --line: #2a2e3a;
+    --text: #eef0f4;
+    --text-dim: #8b90a0;
+    --coral: #ff6b5b;
+    --teal: #2dd9c4;
+    --amber: #fdc453;
+    --violet: #9b8cff;
+    --font: 'Space Grotesk', -apple-system, sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #12141a; --panel: #1a1d26; --text: #eef0f4;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 24px;
+  }
+
+  .frame {
+    width: 100%;
+    max-width: 420px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 22px;
+  }
+
+  .hud {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .hud-block { display: flex; flex-direction: column; gap: 2px; }
+  .hud-label {
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    color: var(--text-dim);
+    text-transform: lowercase;
+  }
+  .hud-value {
+    font-size: 30px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  .hud-block.best .hud-value { color: var(--amber); }
+
+  .stage {
+    position: relative;
+    width: min(340px, 82vw);
+    height: min(340px, 82vw);
+  }
+
+  .pad {
+    position: absolute;
+    width: 46%;
+    height: 46%;
+    border-radius: 28px;
+    border: none;
+    cursor: pointer;
+    filter: saturate(0.55) brightness(0.62);
+    transition: filter 0.12s ease, transform 0.12s ease;
+    -webkit-user-select: none; user-select: none;
+    touch-action: manipulation;
+  }
+  .pad:active { transform: scale(0.96); }
+  .pad.lit {
+    filter: saturate(1.15) brightness(1.18);
+    transform: scale(1.035);
+  }
+  .pad.tl { top: 0; left: 0; background: var(--coral); border-radius: 28px 14px 14px 14px; }
+  .pad.tr { top: 0; right: 0; background: var(--teal); border-radius: 14px 28px 14px 14px; }
+  .pad.bl { bottom: 0; left: 0; background: var(--amber); border-radius: 14px 14px 14px 28px; }
+  .pad.br { bottom: 0; right: 0; background: var(--violet); border-radius: 14px 14px 28px 14px; }
+
+  .core {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 30%; height: 30%;
+    border-radius: 50%;
+    background: var(--bg-deep);
+    border: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+    color: var(--text-dim);
+    text-align: center;
+    line-height: 1.3;
+    padding: 6px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .core.playable { cursor: default; }
+  .core strong { color: var(--text); font-size: 15px; display: block; }
+
+  .status {
+    min-height: 20px;
+    font-size: 14px;
+    color: var(--text-dim);
+    letter-spacing: 0.02em;
+  }
+  .status.alert { color: var(--coral); }
+  .status.go { color: var(--teal); }
+
+  .footer {
+    font-size: 12px;
+    color: var(--text-dim);
+    opacity: 0.6;
+    letter-spacing: 0.04em;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pad, .pad.lit { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="frame">
+  <div class="hud">
+    <div class="hud-block">
+      <span class="hud-label">round</span>
+      <span class="hud-value" id="round">0</span>
+    </div>
+    <div class="hud-block best">
+      <span class="hud-label">longest run</span>
+      <span class="hud-value" id="best">0</span>
+    </div>
+  </div>
+
+  <div class="stage" id="stage">
+    <button class="pad tl" data-pad="0" aria-label="coral pad"></button>
+    <button class="pad tr" data-pad="1" aria-label="teal pad"></button>
+    <button class="pad bl" data-pad="2" aria-label="amber pad"></button>
+    <button class="pad br" data-pad="3" aria-label="violet pad"></button>
+    <div class="core" id="core"><strong id="coreWord">Start</strong>tap to play</div>
+  </div>
+
+  <div class="status" id="status">Watch the pattern, then repeat it.</div>
+  <div class="footer">Chroma Echo</div>
+</div>
+
+<script>
+(function () {
+  const stage = document.getElementById('stage');
+  const pads = Array.from(document.querySelectorAll('.pad'));
+  const core = document.getElementById('core');
+  const coreWord = document.getElementById('coreWord');
+  const statusEl = document.getElementById('status');
+  const roundEl = document.getElementById('round');
+  const bestEl = document.getElementById('best');
+
+  const FREQS = [261.63, 329.63, 392.00, 493.88]; // C E G B - pleasant, not a full scale
+
+  let sequence = [];
+  let playerStep = 0;
+  let round = 0;
+  let best = 0;
+  let accepting = false;
+  let busy = false;
+  let audioCtx = null;
+
+  try {
+    best = parseInt(localStorage.getItem('chroma-echo-best') || '0', 10) || 0;
+  } catch (e) { best = 0; }
+  bestEl.textContent = best;
+
+  function ensureAudio() {
+    if (!audioCtx) {
+      try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      } catch (e) { audioCtx = null; }
+    }
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  }
+
+  function tone(freq, duration) {
+    if (!audioCtx) return;
+    try {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.18, audioCtx.currentTime + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + duration + 0.02);
+    } catch (e) { /* audio best-effort */ }
+  }
+
+  function failTone() {
+    if (!audioCtx) return;
+    try {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.value = 110;
+      gain.gain.setValueAtTime(0.14, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.4);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.42);
+    } catch (e) {}
+  }
+
+  function litOn(i) {
+    pads[i].classList.add('lit');
+    tone(FREQS[i], 0.32);
+  }
+  function litOff(i) {
+    pads[i].classList.remove('lit');
+  }
+
+  function sleep(ms) {
+    return new Promise(res => setTimeout(res, ms));
+  }
+
+  function speedForRound(r) {
+    return Math.max(260, 620 - r * 22);
+  }
+
+  async function playSequence() {
+    accepting = false;
+    busy = true;
+    statusEl.textContent = 'Watch closely...';
+    statusEl.className = 'status';
+    core.classList.remove('playable');
+    coreWord.textContent = round;
+    await sleep(500);
+    const gap = speedForRound(round);
+    for (let i = 0; i < sequence.length; i++) {
+      const p = sequence[i];
+      litOn(p);
+      await sleep(gap * 0.62);
+      litOff(p);
+      await sleep(gap * 0.38);
+    }
+    playerStep = 0;
+    accepting = true;
+    busy = false;
+    statusEl.textContent = 'Your turn — repeat the pattern.';
+    statusEl.className = 'status go';
+  }
+
+  function nextRound() {
+    sequence.push(Math.floor(Math.random() * 4));
+    round += 1;
+    roundEl.textContent = round;
+    playSequence();
+  }
+
+  function startGame() {
+    ensureAudio();
+    sequence = [];
+    round = 0;
+    roundEl.textContent = 0;
+    coreWord.textContent = round;
+    nextRound();
+  }
+
+  async function onFail() {
+    accepting = false;
+    failTone();
+    stage.style.transform = 'translateX(0)';
+    const shakes = [-8, 8, -6, 6, -3, 0];
+    for (const dx of shakes) {
+      stage.style.transform = `translateX(${dx}px)`;
+      await sleep(45);
+    }
+    statusEl.textContent = `Run ended at round ${round}. Tap the center to try again.`;
+    statusEl.className = 'status alert';
+
+    if (round - 1 > best) {
+      best = round - 1;
+      bestEl.textContent = best;
+      try { localStorage.setItem('chroma-echo-best', String(best)); } catch (e) {}
+    }
+
+    coreWord.textContent = 'Retry';
+    core.classList.remove('playable');
+    round = 0;
+    roundEl.textContent = 0;
+    sequence = [];
+  }
+
+  function onPadTap(i) {
+    if (!accepting || busy) return;
+    litOn(i);
+    setTimeout(() => litOff(i), 180);
+
+    if (i === sequence[playerStep]) {
+      playerStep += 1;
+      if (playerStep === sequence.length) {
+        accepting = false;
+        statusEl.textContent = 'Nice. Next round...';
+        statusEl.className = 'status go';
+        setTimeout(nextRound, 550);
+      }
+    } else {
+      onFail();
+    }
+  }
+
+  pads.forEach((pad, i) => {
+    pad.addEventListener('click', () => onPadTap(i));
+  });
+
+  core.addEventListener('click', () => {
+    if (busy) return;
+    startGame();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    const map = { '1': 0, 'q': 0, '2': 1, 'w': 1, '3': 2, 'a': 2, '4': 3, 's': 3 };
+    if (e.key === 'Enter' || e.key === ' ') {
+      if (!busy && !accepting) startGame();
+      return;
+    }
+    if (map[e.key.toLowerCase()] !== undefined) onPadTap(map[e.key.toLowerCase()]);
+  });
+})();
+</script>
+
+</body>
+</html>
